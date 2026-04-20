@@ -12,8 +12,8 @@
 	"argv": [
 		"/opt/homebrew/bin/xcode-build-server"
 	],
-	"workspace": "/Users/vardaan/Projects/swift/Readora/Readora.xcodeproj/project.xcworkspace",
-	"build_root": "/Users/vardaan/Library/Developer/Xcode/DerivedData/Readora-fildifxvwvuvmrazcasftkkcjjzr",
+	"workspace": "/Users/vardaan/Projects/Readora/readora_ios/Readora.xcodeproj/project.xcworkspace",
+	"build_root": "/Users/vardaan/Library/Developer/Xcode/DerivedData/Readora-brfznkauhldzmcagaltvvmwvrztf",
 	"scheme": "Readora",
 	"kind": "xcode"
 }

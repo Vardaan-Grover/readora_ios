@@ -34,4 +34,18 @@ final actor BookRepositorySQLite: BookRepository {
             }
         }
     }
+
+    func deleteBook(_ book: Book) async {
+        await withCheckedContinuation { continuation in
+            do {
+                try dbQueue.write { db in
+                    _ = try book.delete(db)
+                }
+                continuation.resume()
+            } catch {
+                print("BookRepositorySQLite deleteBook error:", error)
+                continuation.resume()
+            }
+        }
+    }
 }

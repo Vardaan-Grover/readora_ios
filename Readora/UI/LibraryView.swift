@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import UniformTypeIdentifiers
 
 struct LibraryView: View {
@@ -58,8 +59,8 @@ struct LibraryView: View {
 
                 }
                 .onDelete { indexSet in
-                    for _ in indexSet {
-                        continue
+                    Task {
+                        await viewModel.deleteBooks(at: indexSet)
                     }
                 }
             }

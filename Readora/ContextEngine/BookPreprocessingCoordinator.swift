@@ -17,7 +17,29 @@ actor BookPreprocessingCoordinator {
         }
     }
 
-    /// Starts the preprocessing pipeline for a book
+    /// Opens a Readium publication. Runs briefly on the MainActor (required by ReadiumStack),
+    /// then returns the Publication so all heavy work can continue off the main thread.
+    @MainActor
+    private static func openPublication(at localURL: URL) async throws -> Publication {
+        guard let fileURL = FileURL(url: localURL) else {
+            throw PreprocessingError.invalidURL
+        }
+        let stack = ReadiumStack.shared
+        let retrieveResult = await stack.assetRetriever.retrieve(url: fileURL)
+        guard case .success(let asset) = retrieveResult else {
+            throw PreprocessingError.publicationOpenFailed
+        }
+        let openResult = await stack.publicationOpener.open(
+            asset: asset, allowUserInteraction: false, sender: nil)
+        guard case .success(let publication) = openResult else {
+            throw PreprocessingError.publicationOpenFailed
+        }
+        return publication
+    }
+
+    /// Starts the preprocessing pipeline for a book.
+    /// All heavy work (parsing, chunking, LLM calls, DB writes) runs on this actor's
+    /// background executor — NOT on the main thread.
     func preprocess(book: Book) async {
         do {
             print("▶️ Started Preprocessing for book: \(book.title)")
@@ -25,32 +47,16 @@ actor BookPreprocessingCoordinator {
             // 1. Update status to inProgress
             var processingBook = book
             processingBook.preprocessingStatus = .inProgress
-            processingBook.aiAnalysisProgress = 0.01  // Start progress
+            processingBook.aiAnalysisProgress = 0.01
             try await saveBookStatus(processingBook)
 
-            // 2. Open Publication using Readium
+            // 2. Open Publication using Readium.
+            // We hop to @MainActor ONLY for the brief open call, then immediately
+            // return the Publication value and continue on the background actor.
             guard let localURL = book.localURL else {
                 throw PreprocessingError.invalidURL
             }
-
-            guard let fileURL = FileURL(url: localURL) else {
-                throw PreprocessingError.invalidURL
-            }
-
-            let stack = await ReadiumStack.shared
-
-            let retrieveResult = await stack.assetRetriever.retrieve(url: fileURL)
-            guard case .success(let asset) = retrieveResult else {
-                throw PreprocessingError.publicationOpenFailed
-            }
-
-            let opener = await stack.publicationOpener
-            let openResult = await opener.open(
-                asset: asset, allowUserInteraction: false, sender: nil)
-            guard case .success(let publication) = openResult else {
-                throw PreprocessingError.publicationOpenFailed
-            }
-
+            let publication = try await BookPreprocessingCoordinator.openPublication(at: localURL)
             print("✅ EPUB Opened: \(publication.metadata.title ?? "Unknown")")
             processingBook.aiAnalysisProgress = 0.05
             try await saveBookStatus(processingBook)
@@ -144,14 +150,14 @@ actor BookPreprocessingCoordinator {
             var rawResponse: EventExtractionResponse?
             var lastError: Error?
 
-            for attempt in 0..<3 {
+            for attempt in 0..<5 {
                 do {
                     rawResponse = try await client.extractEvents(chunk: chunk)
                     break
                 } catch {
                     lastError = error
-                    if attempt < 2 {
-                        let wait = UInt64(pow(2.0, Double(attempt + 1)))
+                    if attempt < 4 {
+                        let wait = UInt64(20 + (attempt * 10))
                         print("⏳ Event chunk \(index) retry \(attempt + 1) in \(wait)s...")
                         try? await Task.sleep(nanoseconds: wait * 1_000_000_000)
                     }
@@ -159,9 +165,8 @@ actor BookPreprocessingCoordinator {
             }
 
             guard let response = rawResponse else {
-                print(
-                    "⚠️ Event chunk \(index) failed after retries: \(lastError?.localizedDescription ?? \"unknown\")"
-                )
+                let errorDescription = lastError?.localizedDescription ?? "unknown"
+                print("⚠️ Event chunk \(index) failed after retries: \(errorDescription)")
                 continue
             }
 
@@ -253,14 +258,14 @@ actor BookPreprocessingCoordinator {
             // Retry-based LLM call
             var lastError: Error?
             var rawResponse: EntityExtractionResponse?
-            for attempt in 0..<3 {
+            for attempt in 0..<5 {
                 do {
                     rawResponse = try await client.extractEntities(chunk: chunk)
                     break
                 } catch {
                     lastError = error
-                    if attempt < 2 {
-                        let wait = UInt64(pow(2.0, Double(attempt + 1)))
+                    if attempt < 4 {
+                        let wait = UInt64(20 + (attempt * 10))
                         print("⏳ Chunk \(index) retry \(attempt + 1) in \(wait)s...")
                         try? await Task.sleep(nanoseconds: wait * 1_000_000_000)
                     }

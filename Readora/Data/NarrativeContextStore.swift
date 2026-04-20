@@ -51,7 +51,7 @@ struct NarrativePromptEntity {
 
 actor NarrativeContextStore {
     static let shared = NarrativeContextStore(dbQueue: DatabaseManager.shared.dbQueue)
-
+P
     private let dbQueue: DatabaseQueue
 
     init(dbQueue: DatabaseQueue) {
@@ -112,7 +112,7 @@ actor NarrativeContextStore {
         }
     }
 
-    private func resolveParagraph(
+    private nonisolated func resolveParagraph(
         db: Database,
         bookID: UUID,
         selectedText: String
@@ -138,7 +138,7 @@ actor NarrativeContextStore {
         return (id: row["id"], text: row["text"])
     }
 
-    private func fetchEvents(
+    private nonisolated func fetchEvents(
         db: Database,
         bookID: UUID,
         currentParagraphID: Int64,
@@ -167,7 +167,7 @@ actor NarrativeContextStore {
         }
     }
 
-    private func fetchEntities(
+    private nonisolated func fetchEntities(
         db: Database,
         bookID: UUID,
         currentParagraphID: Int64,

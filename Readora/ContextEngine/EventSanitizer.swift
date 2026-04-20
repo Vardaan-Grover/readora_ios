@@ -8,7 +8,7 @@ struct EventSanitizer {
     ///   - paragraphsByIndex: Lookup of all paragraph texts, keyed by absoluteIndex
     ///   - mainIndices: The set of absoluteIndex values that are "main" paragraphs in this chunk
     ///                  (i.e., NOT part of the prefix). Events must only reference these.
-    static func sanitize(
+    nonisolated static func sanitize(
         events: [ExtractedEvent],
         paragraphsByIndex: [Int: NarrativeParagraph],
         mainIndices: Set<Int>

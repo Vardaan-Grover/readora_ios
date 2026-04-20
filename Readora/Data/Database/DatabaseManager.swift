@@ -22,6 +22,7 @@ final class DatabaseManager {
         )
 
         let dbURL = appSupport.appendingPathComponent("readora.sqlite")
+        print("\n\n📊 ======================================\n💾 SQLITE DATABASE LOCATED AT:\n\(dbURL.path)\n======================================\n\n")
 
         var config = Configuration()
         config.foreignKeysEnabled = true

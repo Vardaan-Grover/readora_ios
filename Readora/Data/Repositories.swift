@@ -3,6 +3,7 @@ import Foundation
 protocol BookRepository {
     func listBooks() async -> [Book]
     func addBook(_ book: Book) async
+    func deleteBook(_ book: Book) async
 }
 
 final actor InMemoryBookRepository: BookRepository {
@@ -15,6 +16,10 @@ final actor InMemoryBookRepository: BookRepository {
     }
 
     func addBook(_ book: Book) async { books.append(book) }
+    
+    func deleteBook(_ book: Book) async {
+        books.removeAll { $0.id == book.id }
+    }
 }
 
 final actor JSONBookRepository: BookRepository {
@@ -42,6 +47,11 @@ final actor JSONBookRepository: BookRepository {
 
     func addBook(_ book: Book) async {
         books.append(book)
+        save()
+    }
+    
+    func deleteBook(_ book: Book) async {
+        books.removeAll { $0.id == book.id }
         save()
     }
 
