@@ -14,16 +14,23 @@ struct DefaultAIChatService: AIChatService {
         passageText: String,
         messages: [AIMessage]
     ) async throws -> String {
-        let context = await NarrativeContextStore.shared.buildPromptContext(
-            bookID: bookID,
-            selectedText: passageText
-        )
+        // Fallback to absolute index 0 if not found, though ideally we'd have a better fallback.
+        let absoluteIndex =
+            await NarrativeContextStore.shared.getAbsoluteIndex(
+                for: bookID,
+                selectedText: passageText
+            ) ?? 0
 
-        let client = try OpenAIClient.fromEnvironment()
-        return try await client.chat(
-            messages: messages,
-            passageText: passageText,
-            retrievedContext: context.promptContext
+        // The user's query is the last message
+        guard let lastMessage = messages.last, lastMessage.role == .user else {
+            return "Error: No user message found."
+        }
+
+        let client = BackendService.shared
+        return try await client.queryBook(
+            bookID: bookID,
+            absoluteIndex: absoluteIndex,
+            query: lastMessage.content
         )
     }
 }

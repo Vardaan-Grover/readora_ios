@@ -1,6 +1,6 @@
 import Foundation
-import SwiftUI
 import GRDB
+import SwiftUI
 
 struct Book: Identifiable, Equatable, Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName: String = "books"
@@ -16,8 +16,12 @@ struct Book: Identifiable, Equatable, Codable, FetchableRecord, PersistableRecor
     var aiAnalysisProgress: Float = 0.0
 
     var localURL: URL? {
-        guard let filename = localFilename else {return nil}
-        guard let appSupport = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false) else {return nil}
+        guard let filename = localFilename else { return nil }
+        guard
+            let appSupport = try? FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil,
+                create: false)
+        else { return nil }
 
         return appSupport.appendingPathComponent("Books").appendingPathComponent(filename)
     }
@@ -38,6 +42,7 @@ struct Passage: Identifiable, Equatable {
 }
 
 struct ContextBundle: Equatable {
+    let bookID: UUID
     let selectedText: String
     let localWindow: String
     let chapterTitle: String?
@@ -72,10 +77,10 @@ enum HighlightColor: String, Codable, CaseIterable {
 extension HighlightColor {
     var uiColor: UIColor {
         switch self {
-            case .yellow: return UIColor.systemYellow.withAlphaComponent(0.4)
-            case .green: return UIColor.systemGreen.withAlphaComponent(0.4)
-            case .blue: return UIColor.systemBlue.withAlphaComponent(0.4)
-            case .pink: return UIColor.systemPink.withAlphaComponent(0.4)
+        case .yellow: return UIColor.systemYellow.withAlphaComponent(0.4)
+        case .green: return UIColor.systemGreen.withAlphaComponent(0.4)
+        case .blue: return UIColor.systemBlue.withAlphaComponent(0.4)
+        case .pink: return UIColor.systemPink.withAlphaComponent(0.4)
         }
     }
 }

@@ -1,18 +1,19 @@
-import Foundation
 import Combine
+import CryptoKit
+import Foundation
 
 @MainActor
 final class LibraryViewModel: ObservableObject {
-    
+
     @Published private(set) var books: [Book] = []
     @Published var isLoading = false
-    
+
     private let bookRepo: BookRepository
     private let readerService: ReaderService
     private let contextEngine: ContextEngine
     private let aiClient: AIClient
     private let preprocessingCoordinator: BookPreprocessingCoordinator
-    
+
     init(
         bookRepo: BookRepository,
         readerService: ReaderService,
@@ -26,73 +27,126 @@ final class LibraryViewModel: ObservableObject {
         self.aiClient = aiClient
         self.preprocessingCoordinator = preprocessingCoordinator
     }
-    
+
     func load() async {
         isLoading = true
         defer { isLoading = false }
         books = await bookRepo.listBooks()
+        await resumePreprocessingIfNeeded(for: books)
     }
-    
+
+    private func resumePreprocessingIfNeeded(for books: [Book]) async {
+        for book in books {
+            let indexed = await NarrativeContextStore.shared.hasParagraphs(for: book.id)
+            guard !indexed else { continue }
+            AppLogger.log(tag: "LibraryViewModel", "⚠️ \(book.title) has no local paragraphs — resuming preprocessing")
+            Task.detached { [preprocessingCoordinator] in
+                await preprocessingCoordinator.preprocess(book: book)
+            }
+        }
+    }
+
     func openBook(_ book: Book) async -> ReaderViewModel {
         let passage = await readerService.openSamplePassage(for: book)
-        
+
         return ReaderViewModel(
             passage: passage,
             contextEngine: contextEngine,
             aiClient: aiClient
         )
     }
-    
+
     func importBook(from url: URL) async {
+        isLoading = true
+        defer { isLoading = false }
         do {
             // For fileImporter URLs, use security scope
             let accessed = url.startAccessingSecurityScopedResource()
-            defer {if accessed {url.stopAccessingSecurityScopedResource()}}
-            
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+
             let localURL = try BookFileStore.copyIntoAppLibrary(from: url)
-            
+            let title = localURL.deletingPathExtension().lastPathComponent
+
+            let backendService = BackendService.shared
+
+            AppLogger.log(tag: "LibraryViewModel", "1. Requesting upload URL for \(title)...")
+            let uploadInfo = try await backendService.getUploadURL(
+                filename: localURL.lastPathComponent)
+
+            AppLogger.log(tag: "LibraryViewModel", "2. Computing SHA-256 hash of EPUB bytes...")
+            let fileData = try Data(contentsOf: localURL)
+            let hashDigest = SHA256.hash(data: fileData)
+            let hashString = hashDigest.compactMap { String(format: "%02x", $0) }.joined()
+
+            AppLogger.log(
+                tag: "LibraryViewModel", "3. Initializing book record with hash: \(hashString)")
+            let backendBookResponse = try await backendService.initBook(
+                s3Key: uploadInfo.s3_key,
+                title: title,
+                author: nil,
+                contentHash: hashString
+            )
+
+            // If duplicate, SKIP R2 upload & ingestion trigger
+            if !backendBookResponse.duplicate {
+                AppLogger.log(
+                    tag: "LibraryViewModel", "4. New book detected. Uploading EPUB to R2...")
+                try await backendService.uploadEPUB(
+                    uploadURL: uploadInfo.upload_url, fileURL: localURL)
+
+                AppLogger.log(
+                    tag: "LibraryViewModel", "5. Triggering ingestion worker on Backend...")
+                try await backendService.startIngestion(bookID: backendBookResponse.book_id)
+            } else {
+                AppLogger.log(
+                    tag: "LibraryViewModel",
+                    "4 & 5. Duplicate detected. Skipping R2 upload and ingestion.")
+            }
+
             let book = Book(
-                id: UUID(),
-                title: localURL.deletingPathExtension().lastPathComponent,
+                id: backendBookResponse.book_id,
+                title: title,
                 author: nil,
                 format: .epub,
                 localFilename: localURL.lastPathComponent
             )
-            
-            await bookRepo.addBook(book)
-            print("Book added:", book)
-            books = await bookRepo.listBooks()
-            print("Books after add:", books)
 
+            AppLogger.log(tag: "LibraryViewModel", "Saving \(title) to local database.")
+            await bookRepo.addBook(book)
+            books = await bookRepo.listBooks()
+
+            AppLogger.log(
+                tag: "LibraryViewModel",
+                "Firing off BookPreprocessingCoordinator for index generation.")
             Task.detached {
                 await self.preprocessingCoordinator.preprocess(book: book)
             }
         } catch {
-            // add an error state later
-            print("Import failed: \(error)")
+            AppLogger.logError(tag: "LibraryViewModel", error)
         }
     }
-    
+
     func deleteBooks(at offsets: IndexSet) async {
         let booksToDelete = offsets.map { books[$0] }
-        
+
         for book in booksToDelete {
             // 1. Delete physical file if it exists
             if let url = book.localURL {
                 do {
                     if FileManager.default.fileExists(atPath: url.path) {
                         try FileManager.default.removeItem(at: url)
-                        print("Deleted exact local file at \(url.path)")
+                        AppLogger.log(
+                            tag: "LibraryViewModel", "Deleted exact local file at \(url.path)")
                     }
                 } catch {
-                    print("Failed to delete local file for \(book.title): \(error)")
+                    AppLogger.logError(tag: "LibraryViewModel", error)
                 }
             }
-            
+
             // 2. Remove from repository (database)
             await bookRepo.deleteBook(book)
         }
-        
+
         // 3. Refresh list
         books = await bookRepo.listBooks()
     }

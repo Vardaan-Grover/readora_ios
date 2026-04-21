@@ -4,15 +4,14 @@ final class AppContainer {
     // Repos
     let bookRepo: BookRepository
     let databaseManager: DatabaseManager
-    
+
     // Services
     let readerService: ReaderService
     let preprocessingCoordinator: BookPreprocessingCoordinator
-    
-    // AI + Context will be wired soon
+
     let contextEngine: ContextEngine
     let aiClient: AIClient
-    
+
     private init(
         databaseManager: DatabaseManager,
         bookRepo: BookRepository,
@@ -28,7 +27,7 @@ final class AppContainer {
         self.contextEngine = contextEngine
         self.aiClient = aiClient
     }
-    
+
     static func live() -> AppContainer {
         let databaseManager = DatabaseManager.shared
 
@@ -38,25 +37,15 @@ final class AppContainer {
             assertionFailure("Database smoke test failed: \(error)")
         }
 
-        let openAIKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
-        let openAIModel = ProcessInfo.processInfo.environment["OPENAI_MODEL"] ?? "gpt-4.1"
-        let geminiKey = ProcessInfo.processInfo.environment["GEMINI_API_KEY"]
-
         let bookRepo = BookRepositorySQLite(dbQueue: databaseManager.dbQueue)
         let readerService = DefaultReaderService()
         let coordinator = BookPreprocessingCoordinator(
-            dbQueue: databaseManager.dbQueue,
-            geminiAPIKey: geminiKey
+            dbQueue: databaseManager.dbQueue
         )
         let contextEngine = DefaultContextEngine()
 
-        let aiClient: AIClient
-        if let key = openAIKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
-            aiClient = OpenAIClient(apiKey: key, model: openAIModel)
-        } else {
-            aiClient = MockAIClient()
-        }
-        
+        let aiClient = BackendAIClient()
+
         return AppContainer(
             databaseManager: databaseManager,
             bookRepo: bookRepo,

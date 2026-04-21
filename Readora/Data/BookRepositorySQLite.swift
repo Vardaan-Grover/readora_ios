@@ -29,7 +29,7 @@ final actor BookRepositorySQLite: BookRepository {
                 }
                 continuation.resume()
             } catch {
-                print("BookRepositorySQLite addBook error:", error)
+                AppLogger.logError(tag: "BookRepository", error)
                 continuation.resume()
             }
         }
@@ -43,7 +43,7 @@ final actor BookRepositorySQLite: BookRepository {
                 }
                 continuation.resume()
             } catch {
-                print("BookRepositorySQLite deleteBook error:", error)
+                AppLogger.logError(tag: "BookRepository", error)
                 continuation.resume()
             }
         }

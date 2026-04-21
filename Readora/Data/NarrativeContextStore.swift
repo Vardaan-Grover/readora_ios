@@ -1,202 +1,135 @@
 import Foundation
 import GRDB
 
-struct NarrativePromptContext {
-    let currentParagraphID: Int64?
-    let currentParagraphText: String?
-    let events: [NarrativePromptEvent]
-    let entities: [NarrativePromptEntity]
-
-    var promptContext: String {
-        var sections: [String] = []
-
-        if let currentParagraphText, !currentParagraphText.isEmpty {
-            let excerpt = String(currentParagraphText.prefix(450))
-            sections.append("[CURRENT_PARAGRAPH]\n\(excerpt)")
-        }
-
-        if !events.isEmpty {
-            let eventLines = events.map { "- \($0.summary)" }.joined(separator: "\n")
-            sections.append("[RELEVANT_PAST_EVENTS]\n\(eventLines)")
-        }
-
-        if !entities.isEmpty {
-            let entityLines = entities.map { entity in
-                if entity.aliases.isEmpty {
-                    return "- \(entity.name) (\(entity.type))"
-                }
-                let aliasList = entity.aliases.joined(separator: ", ")
-                return "- \(entity.name) (\(entity.type)); aliases: \(aliasList)"
-            }.joined(separator: "\n")
-            sections.append("[RELEVANT_ENTITIES]\n\(entityLines)")
-        }
-
-        return sections.joined(separator: "\n\n")
-    }
-}
-
-struct NarrativePromptEvent {
-    let summary: String
-    let firstParagraphID: Int64
-    let lastParagraphID: Int64
-    let importanceScore: Double
-}
-
-struct NarrativePromptEntity {
-    let name: String
-    let type: String
-    let aliases: [String]
-    let importanceScore: Double
-}
-
 actor NarrativeContextStore {
     static let shared = NarrativeContextStore(dbQueue: DatabaseManager.shared.dbQueue)
-P
+
     private let dbQueue: DatabaseQueue
 
     init(dbQueue: DatabaseQueue) {
         self.dbQueue = dbQueue
     }
 
-    func buildPromptContext(
-        bookID: UUID,
-        selectedText: String,
-        maxEvents: Int = 8,
-        maxEntities: Int = 8
-    ) async -> NarrativePromptContext {
+    func hasParagraphs(for bookID: UUID) async -> Bool {
         do {
             return try await dbQueue.read { db in
-                let paragraph = try resolveParagraph(
-                    db: db,
-                    bookID: bookID,
-                    selectedText: selectedText
-                )
-
-                guard let paragraphID = paragraph?.id else {
-                    return NarrativePromptContext(
-                        currentParagraphID: nil,
-                        currentParagraphText: nil,
-                        events: [],
-                        entities: []
-                    )
-                }
-
-                let events = try fetchEvents(
-                    db: db,
-                    bookID: bookID,
-                    currentParagraphID: paragraphID,
-                    limit: maxEvents
-                )
-
-                let entities = try fetchEntities(
-                    db: db,
-                    bookID: bookID,
-                    currentParagraphID: paragraphID,
-                    limit: maxEntities
-                )
-
-                return NarrativePromptContext(
-                    currentParagraphID: paragraphID,
-                    currentParagraphText: paragraph?.text,
-                    events: events,
-                    entities: entities
-                )
+                let count = try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM paragraphs WHERE bookID = ?",
+                    arguments: [bookID]
+                ) ?? 0
+                return count > 0
             }
         } catch {
-            return NarrativePromptContext(
-                currentParagraphID: nil,
-                currentParagraphText: nil,
-                events: [],
-                entities: []
-            )
+            return false
         }
     }
 
-    private nonisolated func resolveParagraph(
-        db: Database,
-        bookID: UUID,
-        selectedText: String
-    ) throws -> (id: Int64, text: String)? {
-        let normalized = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return nil }
+    func getAbsoluteIndex(for bookID: UUID, selectedText: String) async -> Int? {
+        let probe = Self.matchingProbe(from: selectedText)
+        guard !probe.isEmpty else {
+            AppLogger.log(tag: "NarrativeContextStore", "❌ probe is empty, selectedText was: \(selectedText.prefix(100))")
+            return nil
+        }
 
-        let pattern = "%\(normalized)%"
+        let escapedRaw = selectedText.prefix(120).replacingOccurrences(of: "\n", with: "⏎").replacingOccurrences(of: "\r", with: "⏎")
+        AppLogger.log(tag: "NarrativeContextStore", "📝 raw (\\n→⏎): \"\(escapedRaw)\"")
+        AppLogger.log(tag: "NarrativeContextStore", "🔍 probe: \"\(probe.prefix(120))\"")
 
-        let row = try Row.fetchOne(
-            db,
-            sql: """
-                SELECT id, text
-                FROM paragraphs
-                WHERE bookID = ? AND text LIKE ?
-                ORDER BY absoluteIndex ASC
-                LIMIT 1
-                """,
-            arguments: [bookID, pattern]
-        )
+        do {
+            return try await dbQueue.read { db in
+                if AppLogger.isEnabled {
+                    let totalCount = try Int.fetchOne(
+                        db,
+                        sql: "SELECT COUNT(*) FROM paragraphs WHERE bookID = ?",
+                        arguments: [bookID]
+                    ) ?? 0
+                    AppLogger.log(tag: "NarrativeContextStore", "📦 paragraphs in DB for book: \(totalCount)")
 
-        guard let row else { return nil }
-        return (id: row["id"], text: row["text"])
-    }
+                    if totalCount > 0 {
+                        let sample = try Row.fetchAll(
+                            db,
+                            sql: "SELECT absoluteIndex, text FROM paragraphs WHERE bookID = ? ORDER BY absoluteIndex ASC LIMIT 3",
+                            arguments: [bookID]
+                        )
+                        for row in sample {
+                            let idx: Int = row["absoluteIndex"]
+                            let txt: String = row["text"]
+                            AppLogger.log(tag: "NarrativeContextStore", "  sample[\(idx)]: \"\(txt.prefix(80))\"")
+                        }
+                    }
+                }
 
-    private nonisolated func fetchEvents(
-        db: Database,
-        bookID: UUID,
-        currentParagraphID: Int64,
-        limit: Int
-    ) throws -> [NarrativePromptEvent] {
-        let rows = try Row.fetchAll(
-            db,
-            sql: """
-                SELECT summary, firstParagraphID, lastParagraphID, importanceScore
-                FROM events
-                WHERE bookID = ?
-                  AND lastParagraphID <= ?
-                ORDER BY importanceScore DESC, lastParagraphID DESC
-                LIMIT ?
-                """,
-            arguments: [bookID, currentParagraphID, limit]
-        )
+                let row = try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT absoluteIndex
+                        FROM paragraphs
+                        WHERE bookID = ? AND text LIKE ?
+                        ORDER BY absoluteIndex ASC
+                        LIMIT 1
+                        """,
+                    arguments: [bookID, "%\(probe)%"]
+                )
 
-        return rows.map { row in
-            NarrativePromptEvent(
-                summary: row["summary"],
-                firstParagraphID: row["firstParagraphID"],
-                lastParagraphID: row["lastParagraphID"],
-                importanceScore: row["importanceScore"]
-            )
+                if let result: Int = row?["absoluteIndex"] {
+                    AppLogger.log(tag: "NarrativeContextStore", "✅ matched absoluteIndex: \(result)")
+                    return result
+                } else {
+                    AppLogger.log(tag: "NarrativeContextStore", "❌ no match found for probe")
+                    return nil
+                }
+            }
+        } catch {
+            AppLogger.log(tag: "NarrativeContextStore", "❌ DB error: \(error)")
+            return nil
         }
     }
 
-    private nonisolated func fetchEntities(
-        db: Database,
-        bookID: UUID,
-        currentParagraphID: Int64,
-        limit: Int
-    ) throws -> [NarrativePromptEntity] {
-        let rows = try Row.fetchAll(
-            db,
-            sql: """
-                SELECT canonicalName, type, aliasesJSON, importanceScore
-                FROM entities
-                WHERE bookID = ?
-                  AND COALESCE(firstMentionParagraphID, 0) <= ?
-                ORDER BY importanceScore DESC, COALESCE(lastMentionParagraphID, 0) DESC
-                LIMIT ?
-                """,
-            arguments: [bookID, currentParagraphID, limit]
-        )
+    // MARK: - Text normalization
 
-        return rows.map { row in
-            let aliasesJSON: String = row["aliasesJSON"]
-            let aliasesData = aliasesJSON.data(using: .utf8)
-            let aliases = (aliasesData.flatMap { try? JSONDecoder().decode([String].self, from: $0) }) ?? []
+    /// Normalizes Readium-rendered text to match SwiftSoup .text() output.
+    ///
+    /// SwiftSoup strips tags, decodes HTML entities, and collapses whitespace.
+    /// Readium's text.highlight is already entity-decoded by the browser, but
+    /// can contain soft hyphens (U+00AD) from hyphenation and non-breaking
+    /// spaces (U+00A0) from CSS layout. This function bridges that gap.
+    private static func normalize(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\u{00AD}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
-            return NarrativePromptEntity(
-                name: row["canonicalName"],
-                type: row["type"],
-                aliases: aliases,
-                importanceScore: row["importanceScore"]
-            )
+    /// Returns the substring of a (possibly multi-paragraph) selection that
+    /// best identifies the paragraph the reader is currently at.
+    ///
+    /// Readium separates DOM paragraphs with \n in text.highlight. We split on
+    /// \n before normalizing so the boundary isn't collapsed into a space.
+    /// The last non-empty line belongs to the second (current) paragraph.
+    /// For single-paragraph selections there is no \n, so we fall through to
+    /// sentence-boundary splitting on the full normalized text.
+    private static func matchingProbe(from text: String) -> String {
+        let lines = text
+            .components(separatedBy: "\n")
+            .map { normalize($0) }
+            .filter { $0.count > 10 }
+
+        if lines.count > 1, let lastLine = lines.last {
+            return lastLine
         }
+
+        let normalized = normalize(text)
+        guard !normalized.isEmpty else { return "" }
+
+        let fragments = normalized.components(separatedBy: CharacterSet(charactersIn: ".!?"))
+        if let last = fragments.last(where: { $0.trimmingCharacters(in: .whitespaces).count > 20 }) {
+            return last.trimmingCharacters(in: .whitespaces)
+        }
+
+        return String(normalized.suffix(60)).trimmingCharacters(in: .whitespaces)
     }
 }

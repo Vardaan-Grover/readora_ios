@@ -12,12 +12,7 @@ struct DefaultContextEngine: ContextEngine {
     }
 
     func makeBundle(from passage: Passage) async -> ContextBundle {
-        let narrativeContext = await contextStore.buildPromptContext(
-            bookID: passage.bookID,
-            selectedText: passage.selectedText
-        )
-
-        var window = """
+        let window = """
             [BEFORE]
             \(passage.beforeText)
 
@@ -28,18 +23,20 @@ struct DefaultContextEngine: ContextEngine {
             \(passage.afterText)
             """
 
-        if !narrativeContext.promptContext.isEmpty {
-            window += "\n\n[NARRATIVE_CONTEXT]\n\(narrativeContext.promptContext)"
-        }
+        let absoluteIndex = await contextStore.getAbsoluteIndex(
+            for: passage.bookID,
+            selectedText: passage.selectedText
+        )
 
         let readingPositionHint: String?
-        if let paragraphID = narrativeContext.currentParagraphID {
-            readingPositionHint = "paragraphID:\(paragraphID)"
+        if let idx = absoluteIndex {
+            readingPositionHint = "absoluteIndex:\(idx)"
         } else {
             readingPositionHint = nil
         }
 
         return ContextBundle(
+            bookID: passage.bookID,
             selectedText: passage.selectedText,
             localWindow: window,
             chapterTitle: passage.chapterTitle,
