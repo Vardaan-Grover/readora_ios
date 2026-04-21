@@ -1,1 +1,5 @@
 Readora/readora.sqlite
+Readora.xcodeproj/project.xcworkspace/xcuserdata/
+Readora.xcodeproj/xcuserdata/
+*.xcuserstate
+.build
