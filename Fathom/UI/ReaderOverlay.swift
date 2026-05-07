@@ -1,3 +1,4 @@
+import ReadiumShared
 import SwiftUI
 
 struct ReaderOverlay: View {
@@ -6,8 +7,11 @@ struct ReaderOverlay: View {
     let totalPages: Int
     let isActive: Bool
     let foregroundColor: Color
+    let backgroundColor: Color
     let isScrolling: Bool
     let onDismiss: () -> Void
+    var lastUndoJSON: String? = nil
+    var onUndo: () -> Void = {}
 
     private var textColor: Color { foregroundColor }
 
@@ -28,7 +32,26 @@ struct ReaderOverlay: View {
     }
 
     private var topBar: some View {
-        ZStack {
+        // Side elements take their natural size; title claims whatever space remains.
+        // An invisible placeholder (same width as the back button) fills the trailing
+        // slot when the undo button is absent, keeping the title visually centred.
+        // The back button uses opacity rather than conditional inclusion so the
+        // layout — and therefore the title position — stays stable when bars toggle.
+        HStack(spacing: 8) {
+
+            // Leading: back button (always in layout, invisible when bars hidden)
+            Button(action: onDismiss) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(textColor)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .background(Group { if isScrolling { Circle().glassEffect(.regular) } })
+            .opacity(isActive ? 1 : 0)
+            .allowsHitTesting(isActive)
+
+            // Centre: title, takes all remaining space
             Text(bookTitle)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(textColor.opacity(isActive ? 0.9 : 0.4))
@@ -36,42 +59,28 @@ struct ReaderOverlay: View {
                 .truncationMode(.tail)
                 .padding(.horizontal, isScrolling ? 14 : 0)
                 .padding(.vertical, isScrolling ? 6 : 0)
-                .background(
-                    Group {
-                        if isScrolling {
-                            Capsule()
-                                .glassEffect(.regular)
-                        }
-                    }
-                )
-                .padding(.horizontal, 65)
-                .frame(maxWidth: .infinity)
+                .background(Group { if isScrolling { Capsule().glassEffect(.regular) } })
+                .frame(maxWidth: .infinity, alignment: .center)
                 .opacity(isScrolling && !isActive ? 0 : 1)
 
-            if isActive {
-                HStack {
-                    Button(action: onDismiss) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(textColor)
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .background(
-                        Group {
-                            if isScrolling {
-                                Circle()
-                                    .glassEffect(.regular)
-                            }
-                        }
-                    )
-                    Spacer()
-                }
-                .opacity(isScrolling && !isActive ? 0 : 1)
-                .padding(.leading, 24)
+            // Trailing: undo button when available, otherwise an invisible
+            // placeholder matching the back button width to keep the title centred.
+            if isActive, let undoJSON = lastUndoJSON {
+                UndoJumpButton(
+                    lastLocatorJSON: undoJSON,
+                    foregroundColor: foregroundColor,
+                    backgroundColor: backgroundColor,
+                    onUndo: onUndo
+                )
+                .transition(.scale.combined(with: .opacity))
+                .fixedSize()
+            } else {
+                Color.clear.frame(width: 36, height: 36)
             }
         }
+        .padding(.horizontal, 24)
         .padding(.vertical, 8)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: lastUndoJSON)
     }
 
     private var bottomBar: some View {
@@ -96,5 +105,43 @@ struct ReaderOverlay: View {
         .padding(.bottom, isScrolling ? 20 : 0)
         .fixedSize(horizontal: false, vertical: true)
         .opacity(isScrolling && !isActive ? 0 : 1)
+    }
+}
+
+struct UndoJumpButton: View {
+    let lastLocatorJSON: String
+    let foregroundColor: Color
+    let backgroundColor: Color
+    let onUndo: () -> Void
+
+    private var locator: Locator? {
+        try? Locator(jsonString: lastLocatorJSON)
+    }
+
+    var body: some View {
+        Button(action: {
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            onUndo()
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: 14, weight: .bold))
+
+                if let loc = locator, let page = loc.locations.position {
+                    Text("\(page)")
+                        .font(.system(size: 12, weight: .bold))
+                }
+            }
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(backgroundColor)
+                    .shadow(color: .black.opacity(0.1), radius: 5, y: 2)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }

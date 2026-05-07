@@ -1,14 +1,21 @@
+import ReadiumShared
 import SwiftUI
 
 struct ReaderActionMenu: View {
     @Binding var isPresented: Bool
     @Binding var settings: ReaderSettings
+    @Binding var isScrubbing: Bool
+    @Binding var scrubTargetProgression: Double
+    var currentProgression: Double
+    var positions: [Locator] = []
+    var tableOfContents: [ReadiumShared.Link] = []
     var aiEnabled: Bool = true
     var ingestionReady: Bool = true
     var hasBackendBookID: Bool = true
     var onOpenSettings: () -> Void
     var onOpenAIChats: () -> Void = {}
     var onOpenTOC: () -> Void = {}
+    var onScrubReleased: (Double) -> Void = { _ in }
 
     private var fg: Color { settings.colorTheme.foregroundColor }
     private var bg: Color { settings.colorTheme.backgroundColor }
@@ -32,16 +39,19 @@ struct ReaderActionMenu: View {
     private var menuContent: some View {
         GlassEffectContainer(spacing: 10) {
             VStack(spacing: 10) {
-                CustomButton(
-                    title: "Table of Contents",
-                    symbol: "list.bullet",
+                ContentsScrubberButton(
+                    isScrubbing: $isScrubbing,
+                    scrubTargetProgression: $scrubTargetProgression,
+                    currentProgression: currentProgression,
                     isPresented: $isPresented,
                     foregroundColor: fg,
-                    backgroundColor: bg
-                ) {
-                    isPresented = false
-                    onOpenTOC()
-                }
+                    backgroundColor: bg,
+                    onTapTOC: {
+                        isPresented = false
+                        onOpenTOC()
+                    },
+                    onScrubReleased: onScrubReleased
+                )
                 .frame(width: 250, height: 45)
 
                 CustomButton(
@@ -54,7 +64,6 @@ struct ReaderActionMenu: View {
                     isPresented = false
                 }
                 .frame(width: 250, height: 45)
-
 
                 CustomButton(
                     title: "Themes & Settings",
@@ -104,6 +113,99 @@ struct ReaderActionMenu: View {
                 .fontWeight(.medium)
                 .frame(width: 250, height: 50)
             }
+        }
+        // Overlay on GlassEffectContainer (no transforms applied here, so coordinates are reliable).
+        // frame(height: 0, alignment: .bottom) reports zero height to layout so the menu never
+        // resizes, but the popover content renders upward past the frame boundary — above the menu.
+        .overlay(alignment: .top) {
+            if isScrubbing {
+                ScrubPreviewPopover(
+                    progression: scrubTargetProgression,
+                    positions: positions,
+                    tableOfContents: tableOfContents,
+                    foregroundColor: fg,
+                    backgroundColor: bg
+                )
+                .frame(width: 250)
+                .padding(.bottom, 12)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(height: 0, alignment: .bottom)
+                .transition(.opacity)
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isScrubbing)
+    }
+}
+
+struct ContentsScrubberButton: View {
+    @Binding var isScrubbing: Bool
+    @Binding var scrubTargetProgression: Double
+    var currentProgression: Double
+    @Binding var isPresented: Bool
+    var foregroundColor: Color = .primary
+    var backgroundColor: Color = Color(.systemBackground)
+    var onTapTOC: () -> Void
+    var onScrubReleased: (Double) -> Void
+
+    @State private var pendingProgression: Double? = nil
+
+    var body: some View {
+        GeometryReader { geometry in
+            let w = geometry.size.width
+            let activeProgression =
+                isScrubbing ? scrubTargetProgression : (pendingProgression ?? currentProgression)
+
+            ZStack(alignment: .leading) {
+                // Background
+                Rectangle()
+                    .fill(backgroundColor)
+
+                // Filled progress track (darker/inverted style)
+                Rectangle()
+                    .fill(foregroundColor.opacity(0.15))
+                    .frame(width: max(0, w * activeProgression))
+
+                // Foreground content
+                HStack(spacing: 10) {
+                    Text("Table of Contents")
+                    Spacer()
+                    Image(systemName: "list.bullet")
+                }
+                .padding(.horizontal, 20)
+                .foregroundStyle(foregroundColor)
+            }
+            .clipShape(.capsule)
+            .contentShape(.capsule)
+            .gesture(
+                DragGesture(minimumDistance: 10)
+                    .onChanged { value in
+                        if !isScrubbing {
+                            isScrubbing = true
+                            // Use haptic on start
+                            let generator = UIImpactFeedbackGenerator(style: .medium)
+                            generator.impactOccurred()
+                        }
+
+                        let pct = Double(value.location.x / w)
+                        scrubTargetProgression = max(0.0, min(1.0, pct))
+                    }
+                    .onEnded { _ in
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.impactOccurred()
+
+                        let finalProgression = scrubTargetProgression
+                        pendingProgression = finalProgression
+                        isScrubbing = false
+                        onScrubReleased(finalProgression)
+                    }
+            )
+            .onTapGesture {
+                onTapTOC()
+            }
+        }
+        .opacity(isPresented ? 1 : 0)
+        .onChange(of: currentProgression) { _, _ in
+            pendingProgression = nil
         }
     }
 }

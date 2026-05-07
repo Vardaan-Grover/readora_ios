@@ -4,6 +4,7 @@ final class AppContainer {
     // Repos
     let bookRepo: BookRepository
     let categoryRepo: CategoryRepository
+    let vocabularyRepo: VocabularyRepository
     let databaseManager: DatabaseManager
 
     // Services
@@ -17,6 +18,7 @@ final class AppContainer {
         databaseManager: DatabaseManager,
         bookRepo: BookRepository,
         categoryRepo: CategoryRepository,
+        vocabularyRepo: VocabularyRepository,
         readerService: ReaderService,
         preprocessingCoordinator: BookPreprocessingCoordinator,
         contextEngine: ContextEngine,
@@ -25,6 +27,7 @@ final class AppContainer {
         self.databaseManager = databaseManager
         self.bookRepo = bookRepo
         self.categoryRepo = categoryRepo
+        self.vocabularyRepo = vocabularyRepo
         self.readerService = readerService
         self.preprocessingCoordinator = preprocessingCoordinator
         self.contextEngine = contextEngine
@@ -42,6 +45,7 @@ final class AppContainer {
 
         let bookRepo = BookRepositorySQLite(dbQueue: databaseManager.dbQueue)
         let categoryRepo = CategoryRepositorySQLite(dbQueue: databaseManager.dbQueue)
+        let vocabularyRepo = VocabularyRepositorySQLite(dbQueue: databaseManager.dbQueue)
         let readerService = DefaultReaderService()
         let coordinator = BookPreprocessingCoordinator(
             dbQueue: databaseManager.dbQueue
@@ -54,6 +58,7 @@ final class AppContainer {
             databaseManager: databaseManager,
             bookRepo: bookRepo,
             categoryRepo: categoryRepo,
+            vocabularyRepo: vocabularyRepo,
             readerService: readerService,
             preprocessingCoordinator: coordinator,
             contextEngine: contextEngine,

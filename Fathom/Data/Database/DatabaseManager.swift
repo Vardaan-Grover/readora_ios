@@ -177,7 +177,8 @@ final class DatabaseManager {
         migrator.registerMigration("v5_add_book_category_memberships") { db in
             try db.create(table: "bookCategoryMemberships") { t in
                 t.column("bookID", .text).notNull().references("books", onDelete: .cascade)
-                t.column("categoryID", .text).notNull().references("bookCategories", onDelete: .cascade)
+                t.column("categoryID", .text).notNull().references(
+                    "bookCategories", onDelete: .cascade)
                 t.column("addedAt", .datetime).notNull()
                 t.primaryKey(["bookID", "categoryID"])
             }
@@ -200,6 +201,25 @@ final class DatabaseManager {
         migrator.registerMigration("v8_add_content_hash") { db in
             try db.alter(table: "books") { t in
                 t.add(column: "contentHash", .text)
+            }
+        }
+
+        migrator.registerMigration("v9_create_vocabulary_schema") { db in
+            try db.create(table: "saved_words") { t in
+                t.column("id", .text).notNull().primaryKey()
+                t.column("word", .text).notNull().indexed()
+                t.column("language", .text).notNull().indexed()
+                t.column("partsOfSpeech", .text).notNull()  // Comma-separated parts of speech
+
+                // Book association
+                t.column("bookID", .text).indexed().references("books", onDelete: .setNull)
+                t.column("chapter", .text)
+                t.column("pageNumber", .integer)
+                t.column("locatorJSON", .text)
+
+                t.column("contextSentence", .text)
+                t.column("fullDictionaryJSON", .blob)  // storing raw JSON payload as blob
+                t.column("createdAt", .datetime).notNull().indexed()
             }
         }
 

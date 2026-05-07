@@ -1,5 +1,6 @@
-import SwiftUI
 import Combine
+import SwiftUI
+
 #if os(iOS)
     import UIKit
     import ReadiumShared
@@ -14,6 +15,7 @@ import Combine
         var onTap: (@MainActor (CGPoint, CGSize) -> Void)?
         var onExplain: (@MainActor (String, String) -> Void)?
         var onAddNote: (@MainActor (String, String) -> Void)?
+        var onDefine: (@MainActor (String, String) -> Void)?
     }
 
     final class ReaderContainerViewController: UIViewController,
@@ -22,6 +24,7 @@ import Combine
     {
         var onExplain: ((String, String) -> Void)?
         var onAddNote: ((String, String) -> Void)?
+        var onDefine: ((String, String) -> Void)?
         var bookID: UUID = UUID()
         var aiEnabled: Bool = true
         private(set) var navigator: EPUBNavigatorViewController?
@@ -114,10 +117,9 @@ import Combine
                 ) { [weak self] _ in
                     guard let self else { return }
                     let term = pendingText
+                    let locatorJSON = pendingLocatorJSON
                     navigator?.clearSelection()
-                    guard UIReferenceLibraryViewController.dictionaryHasDefinition(forTerm: term)
-                    else { return }
-                    present(UIReferenceLibraryViewController(term: term), animated: true)
+                    onDefine?(term, locatorJSON)
                 }
             } else {
                 leadAction = UIAction(
@@ -230,7 +232,8 @@ import Combine
         func applyAIQueryHighlight(locatorJSON: String?) {
             guard let navigator = navigator else { return }
             if let locatorJSON,
-               let locator = try? Locator(jsonString: locatorJSON) {
+                let locator = try? Locator(jsonString: locatorJSON)
+            {
                 // Vibrant purple that is distinct from the standard highlight colors
                 let aiTint = UIColor(red: 0.48, green: 0.53, blue: 0.94, alpha: 0.55)
                 let decoration = Decoration(
@@ -293,7 +296,7 @@ import Combine
         let publication: Publication
         var initialLocation: Locator?
         var onLocationChange: (Locator) -> Void = { _ in }
-        var onPositionsLoaded: (Int) -> Void = { _ in }
+        var onPositionsLoaded: ([Locator]) -> Void = { _ in }
         var commands: NavigatorCommands? = nil
         var settings: ReaderSettings = ReaderSettings()
         var bookID: UUID = UUID()
@@ -316,7 +319,8 @@ import Combine
             }
 
             func navigatorContentInset(_ navigator: VisualNavigator) -> UIEdgeInsets? {
-                let safe = navigator.view.window?.safeAreaInsets
+                let safe =
+                    navigator.view.window?.safeAreaInsets
                     ?? UIEdgeInsets(top: 50, left: 0, bottom: 34, right: 0)
                 // top: safe area + active overlay bar (56pt) + gap
                 // bottom: safe area + page-label bar (33pt) + gap
@@ -388,7 +392,9 @@ import Combine
                 AppLogger.logError(tag: "ReadiumNavigatorView", error)
                 return UIViewController()
             }
-            AppLogger.log(tag: "ReadiumNavigatorView", "Successfully initialized EPUBNavigatorViewController.")
+            AppLogger.log(
+                tag: "ReadiumNavigatorView", "Successfully initialized EPUBNavigatorViewController."
+            )
             navigator.delegate = context.coordinator
 
             commands?.goLeft = { @MainActor [weak navigator] in
@@ -425,6 +431,9 @@ import Combine
             container.onAddNote = { [commands] text, locatorJSON in
                 commands?.onAddNote?(text, locatorJSON)
             }
+            container.onDefine = { [commands] text, locatorJSON in
+                commands?.onDefine?(text, locatorJSON)
+            }
 
             container.applyHighlights(HighlightStore.shared.highlights(forBookID: bookID))
             container.setupHighlightInteractions()
@@ -435,7 +444,7 @@ import Combine
             let positionsCallback = onPositionsLoaded
             Task {
                 if case .success(let positions) = await pub.positions() {
-                    await MainActor.run { positionsCallback(positions.count) }
+                    await MainActor.run { positionsCallback(positions) }
                 }
             }
 

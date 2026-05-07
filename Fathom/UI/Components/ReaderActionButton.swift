@@ -12,51 +12,52 @@ struct ReaderActionButton<Actions: View, Background: View>: View {
 
     var body: some View {
         actions
-        /// Disabling interaction when minimised
-        .allowsHitTesting(isPresented)
-        .contentShape(.rect)
-        .compositingGroup()
-        /// Scaling the actions to fit into the button using the visual effect modifier
-        .visualEffect({ [innerScaling, minimisedButtonSize, isPresented] content, proxy in 
-            let maxValue = max(proxy.size.width, proxy.size.height)
-            let minButtonValue = min(minimisedButtonSize.width, minimisedButtonSize.height)
-            let fitScale = minButtonValue / maxValue
-            let modifiedInnerScale = 0.55 * innerScaling
+            /// Disabling interaction when minimised
+            .allowsHitTesting(isPresented)
+            .contentShape(.rect)
+            .compositingGroup()
+            /// Scaling the actions to fit into the button using the visual effect modifier
+            .visualEffect({ [innerScaling, minimisedButtonSize, isPresented] content, proxy in
+                let maxValue = max(proxy.size.width, proxy.size.height)
+                let minButtonValue = min(minimisedButtonSize.width, minimisedButtonSize.height)
+                let fitScale = minButtonValue / maxValue
+                let modifiedInnerScale = 0.55 * innerScaling
 
-            return content
-            .scaleEffect(isPresented ? 1 : modifiedInnerScale)
-            .scaleEffect(isPresented ? 1 : fitScale)
-        })
-        /// Acts like a button tap to expand actions
-        .overlay {
-            if !isPresented {
-                Capsule()
-                .foregroundStyle(.clear)
-                .frame(width: minimisedButtonSize.width, height: minimisedButtonSize.height)
-                .contentShape(.capsule)
-                .onTapGesture {
-                    isPresented = true
+                return
+                    content
+                    .scaleEffect(isPresented ? 1 : modifiedInnerScale)
+                    .scaleEffect(isPresented ? 1 : fitScale)
+            })
+            /// Acts like a button tap to expand actions
+            .overlay {
+                if !isPresented {
+                    Capsule()
+                        .foregroundStyle(.clear)
+                        .frame(width: minimisedButtonSize.width, height: minimisedButtonSize.height)
+                        .contentShape(.capsule)
+                        .onTapGesture {
+                            isPresented = true
+                        }
+                        .transition(.identity)
                 }
-                .transition(.identity)
             }
-        }
-        .background {
-            background
+            .background {
+                background
+                    .frame(
+                        width: isPresented ? nil : minimisedButtonSize.width,
+                        height: isPresented ? nil : minimisedButtonSize.height
+                    )
+                    .compositingGroup()
+                    /// Fading out with blur
+                    .opacity(isPresented ? 0 : 1)
+                    .blur(radius: isPresented ? 30 : 0)
+            }
+            .fixedSize()
             .frame(
-                width: isPresented ? nil : minimisedButtonSize.width, 
+                width: isPresented ? nil : minimisedButtonSize.width,
                 height: isPresented ? nil : minimisedButtonSize.height
             )
-            .compositingGroup()
-            /// Fading out with blur
-            .opacity(isPresented ? 0 : 1)
-            .blur(radius: isPresented ? 30 : 0)
-        }
-        .fixedSize()
-        .frame(
-            width: isPresented ? nil : minimisedButtonSize.width, 
-            height: isPresented ? nil : minimisedButtonSize.height
-        )
-        .animation(animation, value: isPresented)
+            .animation(animation, value: isPresented)
 
     }
 }
@@ -68,7 +69,7 @@ struct CustomButton: View {
     @Binding var isPresented: Bool
     var foregroundColor: Color = .primary
     var backgroundColor: Color = Color(.systemBackground)
-    var action: () -> () = {}
+    var action: () -> Void = {}
 
     var body: some View {
         Button(action: action) {
@@ -102,7 +103,7 @@ struct CustomSectionButton: View {
     @Binding var isPresented: Bool
     var foregroundColor: Color = .primary
     var backgroundColor: Color = Color(.systemBackground)
-    var action: () -> () = {}
+    var action: () -> Void = {}
     var body: some View {
         Button(action: action) {
             HStack {
