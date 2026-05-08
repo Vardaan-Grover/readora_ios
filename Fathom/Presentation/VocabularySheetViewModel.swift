@@ -176,14 +176,12 @@ final class VocabularySheetViewModel: ObservableObject {
 
     public func toggleSave() async {
         if isSaved {
-            // Remove
             if let id = savedWordID {
                 await repository.removeSavedWord(id: id)
             }
             self.isSaved = false
             self.savedWordID = nil
         } else {
-            // Save
             guard let entry = entry else { return }
             let newSavedWord = SavedWord(
                 entry: entry,

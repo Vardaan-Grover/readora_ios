@@ -68,7 +68,7 @@ class HomeViewModel: ObservableObject {
             if let source = categories.flatMap(\.books).first(where: { $0.id == bookID }) {
                 var toAdd = source
                 toAdd.categoryIDs.insert(categoryID)
-                categories[catIdx].books.append(toAdd)
+                categories[catIdx].books.insert(toAdd, at: 0)
             }
             Task { await categoryRepository.addBookToCategory(bookID: bookID, categoryID: categoryID) }
         }
@@ -121,10 +121,13 @@ class HomeViewModel: ObservableObject {
         var result: [HomeCategory] = []
 
         if !books.isEmpty {
+            let libraryBooks = books
+                .sorted { $0.importDate > $1.importDate }
+                .map { homeBook(from: $0) }
             result.append(HomeCategory(
                 id: UUID(),
                 name: "My Library",
-                books: books.map { homeBook(from: $0) },
+                books: libraryBooks,
                 shelfColor: AppTheme.default.colors.shelfAccent,
                 shelfColorHex: ""
             ))

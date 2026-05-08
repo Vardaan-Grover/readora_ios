@@ -57,7 +57,7 @@ final actor CategoryRepositorySQLite: CategoryRepository {
     func listMemberships() async -> [BookCategoryMembership] {
         do {
             return try await dbQueue.read { db in
-                try BookCategoryMembership.fetchAll(db)
+                try BookCategoryMembership.order(Column("addedAt").desc).fetchAll(db)
             }
         } catch {
             AppLogger.logError(tag: "CategoryRepository", error)
@@ -87,4 +87,5 @@ final actor CategoryRepositorySQLite: CategoryRepository {
             AppLogger.logError(tag: "CategoryRepository", error)
         }
     }
+
 }
